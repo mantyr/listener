@@ -1,5 +1,9 @@
 package listener
 
+import (
+	"github.com/lib/pq"
+)
+
 type ChannelName string
 type TableName string
 type TriggerName string
@@ -32,8 +36,22 @@ type Connector interface {
 	// EventDecoderNotFound
 	Next() (interface{}, error)
 
+	// Notify возвращает канал без изменений потока событий
+	Notify() <-chan *pq.Notification
+
 	// Close закрывает соединение с базой данных
 	Close() error
+}
+
+type Router interface {
+	// Register регистрирует декодер событий
+	// OK
+	// InvalidArgument
+	// AlreadyExists
+	Register(TriggerName, Operation, EventDecoder) error
+
+	// Decode декодирует событие для последующей типизации
+	Decode([]byte) (interface{}, error)
 }
 
 type Event struct {

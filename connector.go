@@ -1,7 +1,6 @@
 package listener
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -13,7 +12,7 @@ type connector struct {
 	mutex    sync.RWMutex
 	listener *pq.Listener
 	channels map[ChannelName]struct{}
-	decoders map[string]EventDecoder
+	router   Router
 }
 
 func New(config *Config) (Connector, error) {
@@ -39,7 +38,7 @@ func New(config *Config) (Connector, error) {
 	return &connector{
 		listener: listener,
 		channels: make(map[ChannelName]struct{}),
-		decoders: make(map[string]EventDecoder),
+		router:   NewRouter(),
 	}, nil
 }
 
@@ -89,41 +88,7 @@ func (c *connector) Register(
 	operation Operation,
 	dec EventDecoder,
 ) error {
-	switch {
-	case triggerName == "":
-		return &Error{
-			Code: InvalidArgument,
-			Err:  errors.New("empty trigger_name"),
-		}
-	case operation == "":
-		return &Error{
-			Code: InvalidArgument,
-			Err:  errors.New("empty operation"),
-		}
-	case dec == nil:
-		return &Error{
-			Code: InvalidArgument,
-			Err:  errors.New("empty event_decoder"),
-		}
-	}
-	switch operation {
-	case Insert, Update, Delete:
-	default:
-		return &Error{
-			Code: InvalidArgument,
-			Err:  fmt.Errorf("unexpected operation (%s)", operation),
-		}
-	}
-	key := string(triggerName) + ":" + string(operation)
-	_, ok := c.decoders[key]
-	if ok {
-		return &Error{
-			Code: AlreadyExists,
-			Err:  errors.New("decoder is already registered"),
-		}
-	}
-	c.decoders[key] = dec
-	return nil
+	return c.router.Register(triggerName, operation, dec)
 }
 
 func (c *connector) Next() (interface{}, error) {
@@ -134,23 +99,11 @@ func (c *connector) Next() (interface{}, error) {
 			Err:  errors.New("closed channel"),
 		}
 	}
-	event := new(Event)
-	err := json.Unmarshal([]byte(data.Extra), event)
-	if err != nil {
-		return nil, &Error{
-			Code: InvalidEvent,
-			Err:  err,
-		}
-	}
-	key := string(event.TriggerName) + ":" + string(event.Operation)
-	f, ok := c.decoders[key]
-	if !ok {
-		return nil, &Error{
-			Code: EventDecoderNotFound,
-			Err:  errors.New("event_decoder not found"),
-		}
-	}
-	return f(event)
+	return c.router.Decode([]byte(data.Extra))
+}
+
+func (c *connector) Notify() <-chan *pq.Notification {
+	return c.listener.Notify
 }
 
 func (c *connector) Close() error {
