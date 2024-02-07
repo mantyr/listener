@@ -59,8 +59,20 @@ type Event struct {
 	TriggerName TriggerName `json:"trigger_name"`
 	Operation   Operation   `json:"operation"`
 
-	Old []byte `json:"old,omitempty"`
-	New []byte `json:"new,omitempty"`
+	Old String `json:"old,omitempty"`
+	New String `json:"new,omitempty"`
 }
 
 type EventDecoder func(e *Event) (interface{}, error)
+
+type String struct {
+	Data string
+}
+
+func (s *String) UnmarshalJSON(b []byte) error {
+	if string(b) == "null" {
+		return nil
+	}
+	s.Data = string(b)
+	return nil
+}
